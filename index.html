@@ -214,18 +214,26 @@ async function sbSaveBatch(batch){
   if(offlineMode){lsSave();return;}
   setStatus('saving','⟳ Salvando');
   try{
-    const ups=batch.filter(b=>b.valor>0);
-    const dels=batch.filter(b=>b.valor===0);
-    if(ups.length>0){
-      const res=await fetchT(`${SB_URL}/rest/v1/${TABLE}`,{
-        method:'POST',
-        headers:{...HDRS,'Prefer':'resolution=merge-duplicates,return=minimal'},
-        body:JSON.stringify(ups)
-      });
-      if(!res.ok) throw new Error('HTTP '+res.status);
-    }
-    for(const d of dels){
-      await fetchT(`${SB_URL}/rest/v1/${TABLE}?chave=eq.${encodeURIComponent(d.chave)}`,{method:'DELETE',headers:HDRS});
+    for(const item of batch){
+      if(item.valor===0){
+        await fetchT(`${SB_URL}/rest/v1/${TABLE}?chave=eq.${encodeURIComponent(item.chave)}`,{method:'DELETE',headers:HDRS});
+      } else {
+        const resIns=await fetchT(`${SB_URL}/rest/v1/${TABLE}`,{
+          method:'POST',
+          headers:{...HDRS,'Prefer':'return=minimal'},
+          body:JSON.stringify({chave:item.chave,valor:item.valor})
+        });
+        if(resIns.status===409||resIns.status===400){
+          const resPatch=await fetchT(`${SB_URL}/rest/v1/${TABLE}?chave=eq.${encodeURIComponent(item.chave)}`,{
+            method:'PATCH',
+            headers:{...HDRS,'Prefer':'return=minimal'},
+            body:JSON.stringify({valor:item.valor})
+          });
+          if(!resPatch.ok) throw new Error('PATCH HTTP '+resPatch.status);
+        } else if(!resIns.ok){
+          throw new Error('INSERT HTTP '+resIns.status);
+        }
+      }
     }
     lsSave();
     setStatus('ok','✓ Sincronizado');
